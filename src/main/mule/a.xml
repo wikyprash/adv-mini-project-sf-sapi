@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd 
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<flow name="fetchallcontacts" doc:id="f258f022-ac5b-45a7-b767-7f456e0693b1" >
+		<http:listener doc:name="Listener" doc:id="a761a382-914e-4035-bdb5-d6dae556f96c" config-ref="HTTP_Listener_config" path="contact" allowedMethods="GET"/>
+		<salesforce:query doc:name="Query" doc:id="15ea3531-4149-4fa0-b814-6bfa443cd9da" config-ref="Salesforce_Config">
+			<salesforce:salesforce-query ><![CDATA[select Name, Title, Phone, Id from Contact]]></salesforce:salesforce-query>
+		</salesforce:query>
+		<ee:transform doc:name="Transform Message" doc:id="26c04973-ab03-4ce0-b488-ce5c3e4c8a87" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="delete-sf-data" doc:id="c7c34ae1-6070-4da8-989a-bb9f3ea12c37" >
+		<http:listener doc:name="Listener" doc:id="e784fe80-8871-4175-95ed-9f3800c56055" config-ref="HTTP_Listener_config" path="/contacts" allowedMethods="DELETE"/>
+		<try doc:name="Try" doc:id="4f0564c7-b0d8-4ae3-ac77-11844dcd578c" >
+			<salesforce:delete doc:name="Delete" doc:id="5ceda52c-acfc-45da-8d05-6ac13cc06abf" config-ref="Salesforce_Config">
+		</salesforce:delete>
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="abacf040-9992-4588-8d30-996daba24137" type="SALESFORCE:INVALID_INPUT, SALESFORCE:NOT_FOUND">
+					<ee:transform doc:name="Transform Message" doc:id="0941f078-8d68-4013-beb1-77bf492fc4a6" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+		"message" : "Invalid input and resource not found -- and thats a error"
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="b3ba904a-9bb2-476d-a33f-8b0282efa414" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="2b31bf5b-c151-483d-adb1-55d648f54361" />
+	</flow>
+	<flow name="salesforce-csv-sfFlow" doc:id="c45ed5cf-bb46-4b0a-9cd5-c8edeebce92b" >
+		<choice doc:name="Choice" doc:id="5eeecf6e-3c2f-477a-bb28-1d104436f3d6" >
+			<when expression="isCreated">
+				<logger level="INFO" doc:name="Logger" doc:id="d2f70c60-09f0-4bea-821e-58afbfec33d8" message="new added"/>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="0e07a594-a2e2-45a0-9793-d1b5f104e0f5" />
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="upsert" doc:id="7b7698d1-3793-4dcc-9472-500a453b6a09" >
+		<http:listener doc:name="Listener" doc:id="66be2e33-1e93-4d17-91d1-51d8b339d7cf" config-ref="HTTP_Listener_config" path="/sf" allowedMethods="PUT"/>
+		<set-variable value="#[payload.lead_id]" doc:name="Set Variable" doc:id="cd44147d-71bd-4fae-9e0b-5e220fb64eb6" variableName="lead_id"/>
+		<ee:transform doc:name="Transform Message" doc:id="dcfc5b0b-deb8-4718-8894-d0be599c1e39">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload map ( payload01 , indexOfPayload01 ) -> {
+	LastName: payload01.Name,
+	Phone: payload01.Phone,
+	Email: payload01.Email
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<salesforce:upsert objectType="Contact" externalIdFieldName="Email" doc:name="Upsert" doc:id="18a0fada-64da-4a47-8408-8fd5df3f585f" config-ref="Salesforce_Config"/>
+		<ee:transform doc:name="Transform Message" doc:id="a8aadec8-2d35-4703-b0d8-154bc6db120c">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value="#[payload.items.payload.created[0]]" doc:name="isCreated" doc:id="7d0b9eaf-4112-4482-bde4-cb6c876e8d6b" variableName="isCreated" />
+		<set-variable value="#[payload.items.payload.id[0]]" doc:name="salesforce id" doc:id="d12b9779-bd49-4ece-8479-9020f67f2087" variableName="sid"/>
+		<flow-ref doc:name="Flow Reference" doc:id="1de125e8-7437-42c3-a84f-611f057b31bb" name="salesforce-csv-sfFlow"/>
+		<logger level="INFO" doc:name="Logger" doc:id="29acc560-f810-4e87-9a70-5ba986cdbce3" />
+	</flow>
+</mule>
